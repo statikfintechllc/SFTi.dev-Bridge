@@ -1,93 +1,213 @@
-<!doctype html>
+<!DOCTYPE html>
+
 <html lang="en">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>AI Control Center - Phone Telemetry</title>
-  <style>
-    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif; margin: 0; padding: 0; background: #121212; color: #f5f5f5; }
-    .container { max-width: 900px; margin: auto; padding: 20px; }
-    h1 { font-size: 1.5rem; }
-    .card { background: #222; border: 1px solid #333; border-radius: 8px; padding: 16px; margin: 12px 0; }
-    #log { height: 300px; overflow-y: auto; background: #000; color: #0f0; border: 1px solid #444; border-radius: 8px; padding: 10px; white-space: pre-wrap; font-size: 0.9rem; }
-    button { margin-top: 8px; }
-  </style>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="SFTi Bridge">
+  <meta name="theme-color" content="#04050d">
+  <title>SFTi DevBridge</title>
+  <link rel="manifest" href="/client/manifest.json">
+  <link rel="apple-touch-icon" href="/client/icon-192.png">
+  <link rel="stylesheet" href="/hu.ui/ui.css">
 </head>
 <body>
-  <div class="container">
-    <h1>AI Control Center Landing Page</h1>
-    <p>Device: <input id="deviceId" value="iphone16pro" style="width: 180px;" /> <button id="connectButton">Connect to Server</button></p>
-    <p id="statusText">Status: disconnected</p>
-    <div class="card"><strong>Server URL:</strong> <span id="serverUrl"></span></div>
-    <div class="card"><button id="sendTest">Send Test Event</button></div>
-    <div class="card"><h2>Event Log</h2><div id="log"></div></div>
-    <div class="card"><h2>Instructions</h2><ul><li>1) Add to home screen.</li><li>2) Open this page.</li><li>3) It auto-opens websocket to server, sends console/errors.</li><li>4) See events appear in Control Center at /agent/status or via WS as this page shows.</li></ul></div>
+
+<canvas id="mesh-canvas"></canvas>
+
+<div id="app">
+
+  <!-- ── Header ──────────────────────────────────────────────────────────── -->
+
+  <header id="header">
+    <div class="header-brand">
+      <div class="brand-mark">
+        <!-- S hexagon mark -->
+        <svg viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <polygon points="14,2 25,8 25,20 14,26 3,20 3,8"
+            stroke="#00f5c8" stroke-width="1.2" fill="none" opacity="0.6"/>
+          <polygon points="14,5 22,9.5 22,18.5 14,23 6,18.5 6,9.5"
+            fill="rgba(0,245,200,0.06)" stroke="#00f5c8" stroke-width="0.6" opacity="0.8"/>
+          <text x="14" y="17.5" text-anchor="middle" fill="#00f5c8"
+            font-family="'Orbitron',monospace" font-size="9" font-weight="800">S</text>
+        </svg>
+      </div>
+      <div>
+        <div class="brand-text glow-text">SFTi DevBridge</div>
+        <div class="brand-sub">StatikFinTech Intelligence · AI Dev Loop</div>
+      </div>
+    </div>
+
+```
+<div class="header-status">
+  <div class="stat-chip">
+    <span class="label">Events</span>
+    <span class="value" id="stat-total">0</span>
   </div>
+  <div class="stat-chip">
+    <span class="label">Queue</span>
+    <span class="value" id="stat-queue">0</span>
+  </div>
+  <div class="stat-chip">
+    <span class="label">Uptime</span>
+    <span class="value" id="stat-uptime">0m 00s</span>
+  </div>
+</div>
 
-<script>
-const serverUrl = 'http://' + location.hostname + ':' + location.port;
-const statusText = document.getElementById('statusText');
-const logEl = document.getElementById('log');
-const connectButton = document.getElementById('connectButton');
-const deviceInput = document.getElementById('deviceId');
-const sendTest = document.getElementById('sendTest');
+<div class="header-time" id="header-time">00:00:00</div>
+```
 
-document.getElementById('serverUrl').innerText = serverUrl;
+  </header>
 
-let ws;
-const append = (msg) => { logEl.textContent += '[' + new Date().toISOString() + '] ' + msg + '\n'; logEl.scrollTop = logEl.scrollHeight; };
+  <!-- ── Sidebar ─────────────────────────────────────────────────────────── -->
 
-function sendTelemetryEvent({message, category='runtime', severity='info', details=null}) {
-  const payload = {
-    device_id: deviceInput.value || 'iphone16pro',
-    source: 'pwa-client',
-    message: message,
-    category: category,
-    severity: severity,
-    details: details,
-    timestamp: new Date().toISOString()
-  };
-  if (ws && ws.readyState===WebSocket.OPEN) {
-    ws.send(JSON.stringify(payload));
-    append('WS-> telemetry event ' + message);
-  } else {
-    fetch(serverUrl + '/telemetry', {
-      method:'POST', headers:{'content-type':'application/json'}, body:JSON.stringify(payload)
-    }).then(r => append('HTTP telemetry posted (' + r.status + ')')).catch(e => append('HTTP telemetry failed ' + e));
+  <aside id="sidebar">
+
+```
+<!-- Connection -->
+<div class="panel">
+  <div class="panel-label">Connection</div>
+  <div class="conn-display">
+    <div class="conn-ring-wrap">
+      <div class="conn-ring outer"></div>
+      <div class="conn-ring inner"></div>
+      <div class="conn-dot disconnected" id="conn-dot"></div>
+    </div>
+    <div class="conn-info">
+      <div class="conn-state disconnected" id="conn-state">OFFLINE</div>
+      <div class="conn-ip" id="conn-ip">—</div>
+      <div class="conn-latency" id="conn-latency">—</div>
+    </div>
+  </div>
+</div>
+
+<!-- Device stats -->
+<div class="panel">
+  <div class="panel-label">Device</div>
+  <div class="stat-row">
+    <span class="key">Platform</span>
+    <span class="val" id="dev-platform">iOS 26</span>
+  </div>
+  <div class="stat-row">
+    <span class="key">UA</span>
+    <span class="val" id="dev-ua" style="font-size:8px;max-width:110px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">—</span>
+  </div>
+  <div class="stat-row">
+    <span class="key">Online</span>
+    <span class="val green" id="dev-online">—</span>
+  </div>
+  <div class="stat-row">
+    <span class="key">Memory</span>
+    <span class="val" id="dev-mem">—</span>
+  </div>
+</div>
+
+<!-- Level filters -->
+<div class="panel">
+  <div class="panel-label">Filter</div>
+  <div class="level-filters">
+    <button class="level-btn active" data-level="all" style="color:rgba(210,230,240,0.7)">
+      <span class="lbl" style="color:inherit">All</span>
+      <span class="count" data-count="all">—</span>
+    </button>
+    <button class="level-btn" data-level="log" style="color:#00f5c8">
+      <span class="lbl" style="color:inherit">LOG</span>
+      <span class="count" data-count="log">0</span>
+    </button>
+    <button class="level-btn" data-level="info" style="color:#5eb8ff">
+      <span class="lbl" style="color:inherit">INFO</span>
+      <span class="count" data-count="info">0</span>
+    </button>
+    <button class="level-btn" data-level="warn" style="color:#ff9500">
+      <span class="lbl" style="color:inherit">WARN</span>
+      <span class="count" data-count="warn">0</span>
+    </button>
+    <button class="level-btn" data-level="error" style="color:#ff3b5c">
+      <span class="lbl" style="color:inherit">ERR</span>
+      <span class="count" data-count="error">0</span>
+    </button>
+    <button class="level-btn" data-level="card" style="color:#bf5fff">
+      <span class="lbl" style="color:inherit">CARD</span>
+      <span class="count" data-count="card">0</span>
+    </button>
+  </div>
+</div>
+
+<!-- Actions -->
+<div class="panel">
+  <button class="clear-btn" id="clear-btn">⌫ Clear Feed</button>
+</div>
+```
+
+  </aside>
+
+  <!-- ── Log Feed ─────────────────────────────────────────────────────────── -->
+
+  <main id="feed">
+    <!-- Cards injected by ui.js -->
+  </main>
+
+  <!-- ── Queue Panel ─────────────────────────────────────────────────────── -->
+
+  <aside id="queue-panel">
+    <div class="queue-header">
+      <div class="panel-label">Agent Queue</div>
+    </div>
+    <div class="queue-list" id="queue-list">
+      <div class="queue-empty">
+        <div class="icon">◈</div>
+        <div class="msg">queue empty</div>
+      </div>
+    </div>
+  </aside>
+
+</div>
+
+<!-- ── Scripts ──────────────────────────────────────────────────────────── -->
+
+<script type="module">
+  import { pushLog, setConnected, setDisconnected, updateQueue } from '/hu.ui/ui.js';
+
+  // ── Bridge integration ──────────────────────────────────────────────────
+  // bridge.js writes to window.BRIDGE_EVENTS — ui.js consumes them
+  // This wires bridge telemetry into the UI card feed in real time
+
+  // Device info
+  const ua = navigator.userAgent;
+  document.getElementById('dev-ua').textContent      = ua.slice(0, 40);
+  document.getElementById('dev-platform').textContent = ua.includes('iPhone') ? 'iOS 26' : navigator.platform;
+  document.getElementById('dev-online').textContent  = navigator.onLine ? 'YES' : 'NO';
+  if (navigator.deviceMemory) {
+    document.getElementById('dev-mem').textContent = navigator.deviceMemory + ' GB';
   }
-}
 
-function openWs() {
-  if (ws && ws.readyState===WebSocket.OPEN) {
-    append('Already connected.');
-    return;
-  }
-  const d = encodeURIComponent(deviceInput.value || 'iphone16pro');
-  ws = new WebSocket('ws://' + location.hostname + ':' + location.port + '/ws?role=device&device_id=' + d);
+  window.addEventListener('online',  () => document.getElementById('dev-online').textContent = 'YES');
+  window.addEventListener('offline', () => document.getElementById('dev-online').textContent = 'NO');
 
-  ws.onopen = () => { statusText.innerText = 'Status: connected'; append('WebSocket opened'); sendTelemetryEvent({message:'connected via ws', category:'lifecycle', severity:'info'}); };
-  ws.onmessage = (ev) => { append('WS<- ' + ev.data); };
-  ws.onclose = () => { statusText.innerText = 'Status: disconnected'; append('WebSocket closed, retry in 3s'); setTimeout(openWs, 3000); };
-  ws.onerror = (err) => { append('WebSocket error: ' + JSON.stringify(err)); };
-}
+  // ── Bridge event bus ────────────────────────────────────────────────────
+  // bridge.js dispatches CustomEvent('sfti:log', {detail: entry})
+  // and CustomEvent('sfti:connected', {detail: {ip, latency}})
+  // and CustomEvent('sfti:disconnected')
+  // and CustomEvent('sfti:queue', {detail: cards[]})
 
-connectButton.addEventListener('click', openWs);
-sendTest.addEventListener('click', () => sendTelemetryEvent({message:'Test event from app', category:'manual', severity:'info'}));
+  window.addEventListener('sfti:log', e => pushLog(e.detail));
 
-window.onerror = (message, source, line, col, err) => {
-  sendTelemetryEvent({message: message.toString(), category:'error', severity:'error', details:{source,line,col,stack:err?.stack}});
-};
-window.onunhandledrejection = ev => {
-  sendTelemetryEvent({message:'Unhandled rejection: '+(ev.reason||''), category:'error', severity:'error', details:{reason:ev.reason}});
-};
+  window.addEventListener('sfti:connected', e => {
+    setConnected(e.detail.ip, e.detail.latency);
+    pushLog({ source: 'sys', level: 'info', message: `Connected to ${e.detail.ip} — ${e.detail.latency}ms`, ts: Date.now() / 1000 });
+  });
 
-['log','warn','error','info'].forEach(level => {
-  const original = console[level];
-  console[level] = function(...args) {
-    original.apply(console,args);
-    sendTelemetryEvent({message: args.map(a => typeof a==='object' ? JSON.stringify(a) : String(a)).join(' '), category:'console', severity:(level==='warn'?'warning':level)});
-  }
-});
+  window.addEventListener('sfti:disconnected', () => {
+    setDisconnected();
+    pushLog({ source: 'sys', level: 'warn', message: 'Server connection lost — retrying...', ts: Date.now() / 1000 });
+  });
 
-openWs();
+  window.addEventListener('sfti:queue', e => updateQueue(e.detail));
 </script>
+
+<script type="module" src="/client/bridge.js"></script>
+
+</body>
+</html>
