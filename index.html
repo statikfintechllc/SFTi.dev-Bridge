@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>AI Control Center - Phone Telemetry</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif; margin: 0; padding: 0; background: #121212; color: #f5f5f5; }
+    .container { max-width: 900px; margin: auto; padding: 20px; }
+    h1 { font-size: 1.5rem; }
+    .card { background: #222; border: 1px solid #333; border-radius: 8px; padding: 16px; margin: 12px 0; }
+    #log { height: 300px; overflow-y: auto; background: #000; color: #0f0; border: 1px solid #444; border-radius: 8px; padding: 10px; white-space: pre-wrap; font-size: 0.9rem; }
+    button { margin-top: 8px; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>AI Control Center Landing Page</h1>
+    <p>Device: <input id="deviceId" value="iphone16pro" style="width: 180px;" /> <button id="connectButton">Connect to Server</button></p>
+    <p id="statusText">Status: disconnected</p>
+    <div class="card"><strong>Server URL:</strong> <span id="serverUrl"></span></div>
+    <div class="card"><button id="sendTest">Send Test Event</button></div>
+    <div class="card"><h2>Event Log</h2><div id="log"></div></div>
+    <div class="card"><h2>Instructions</h2><ul><li>1) Add to home screen.</li><li>2) Open this page.</li><li>3) It auto-opens websocket to server, sends console/errors.</li><li>4) See events appear in Control Center at /agent/status or via WS as this page shows.</li></ul></div>
+  </div>
+
+<script>
+const serverUrl = 'http://' + location.hostname + ':' + location.port;
+const statusText = document.getElementById('statusText');
+const logEl = document.getElementById('log');
+const connectButton = document.getElementById('connectButton');
+const deviceInput = document.getElementById('deviceId');
+const sendTest = document.getElementById('sendTest');
+
+document.getElementById('serverUrl').innerText = serverUrl;
+
+let ws;
+const append = (msg) => { logEl.textContent += '[' + new Date().toISOString() + '] ' + msg + '\n'; logEl.scrollTop = logEl.scrollHeight; };
+
+function sendTelemetryEvent({message, category='runtime', severity='info', details=null}) {
+  const payload = {
+    device_id: deviceInput.value || 'iphone16pro',
+    source: 'pwa-client',
+    message: message,
+    category: category,
+    severity: severity,
+    details: details,
+    timestamp: new Date().toISOString()
+  };
+  if (ws && ws.readyState===WebSocket.OPEN) {
+    ws.send(JSON.stringify(payload));
+    append('WS-> telemetry event ' + message);
+  } else {
+    fetch(serverUrl + '/telemetry', {
+      method:'POST', headers:{'content-type':'application/json'}, body:JSON.stringify(payload)
+    }).then(r => append('HTTP telemetry posted (' + r.status + ')')).catch(e => append('HTTP telemetry failed ' + e));
+  }
+}
+
+function openWs() {
+  if (ws && ws.readyState===WebSocket.OPEN) {
+    append('Already connected.');
+    return;
+  }
+  const d = encodeURIComponent(deviceInput.value || 'iphone16pro');
+  ws = new WebSocket('ws://' + location.hostname + ':' + location.port + '/ws?role=device&device_id=' + d);
+
+  ws.onopen = () => { statusText.innerText = 'Status: connected'; append('WebSocket opened'); sendTelemetryEvent({message:'connected via ws', category:'lifecycle', severity:'info'}); };
+  ws.onmessage = (ev) => { append('WS<- ' + ev.data); };
+  ws.onclose = () => { statusText.innerText = 'Status: disconnected'; append('WebSocket closed, retry in 3s'); setTimeout(openWs, 3000); };
+  ws.onerror = (err) => { append('WebSocket error: ' + JSON.stringify(err)); };
+}
+
+connectButton.addEventListener('click', openWs);
+sendTest.addEventListener('click', () => sendTelemetryEvent({message:'Test event from app', category:'manual', severity:'info'}));
+
+window.onerror = (message, source, line, col, err) => {
+  sendTelemetryEvent({message: message.toString(), category:'error', severity:'error', details:{source,line,col,stack:err?.stack}});
+};
+window.onunhandledrejection = ev => {
+  sendTelemetryEvent({message:'Unhandled rejection: '+(ev.reason||''), category:'error', severity:'error', details:{reason:ev.reason}});
+};
+
+['log','warn','error','info'].forEach(level => {
+  const original = console[level];
+  console[level] = function(...args) {
+    original.apply(console,args);
+    sendTelemetryEvent({message: args.map(a => typeof a==='object' ? JSON.stringify(a) : String(a)).join(' '), category:'console', severity:(level==='warn'?'warning':level)});
+  }
+});
+
+openWs();
+</script>
