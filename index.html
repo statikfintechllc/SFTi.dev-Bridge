@@ -1,6 +1,7 @@
 <!DOCTYPE html>
 
 <html lang="en">
+
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
@@ -13,201 +14,204 @@
   <link rel="apple-touch-icon" href="/client/icon-192.png">
   <link rel="stylesheet" href="/hu.ui/ui.css">
 </head>
+
 <body>
 
-<canvas id="mesh-canvas"></canvas>
+  <canvas id="mesh-canvas"></canvas>
 
-<div id="app">
+  <div id="app">
 
-  <!-- ── Header ──────────────────────────────────────────────────────────── -->
+    <!-- ── Header ──────────────────────────────────────────────────────────── -->
 
-  <header id="header">
-    <div class="header-brand">
-      <div class="brand-mark">
-        <!-- S hexagon mark -->
-        <svg viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg">
-          <polygon points="14,2 25,8 25,20 14,26 3,20 3,8"
-            stroke="#00f5c8" stroke-width="1.2" fill="none" opacity="0.6"/>
-          <polygon points="14,5 22,9.5 22,18.5 14,23 6,18.5 6,9.5"
-            fill="rgba(0,245,200,0.06)" stroke="#00f5c8" stroke-width="0.6" opacity="0.8"/>
-          <text x="14" y="17.5" text-anchor="middle" fill="#00f5c8"
-            font-family="'Orbitron',monospace" font-size="9" font-weight="800">S</text>
-        </svg>
+    <header id="header">
+      <div class="header-brand">
+        <div class="brand-mark">
+          <!-- S hexagon mark -->
+          <svg viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <polygon points="14,2 25,8 25,20 14,26 3,20 3,8" stroke="#00f5c8" stroke-width="1.2" fill="none"
+              opacity="0.6" />
+            <polygon points="14,5 22,9.5 22,18.5 14,23 6,18.5 6,9.5" fill="rgba(0,245,200,0.06)" stroke="#00f5c8"
+              stroke-width="0.6" opacity="0.8" />
+            <text x="14" y="17.5" text-anchor="middle" fill="#00f5c8" font-family="'Orbitron',monospace" font-size="9"
+              font-weight="800">S</text>
+          </svg>
+        </div>
+        <div>
+          <div class="brand-text glow-text">SFTi DevBridge</div>
+          <div class="brand-sub">StatikFinTech Intelligence · AI Dev Loop</div>
+        </div>
       </div>
-      <div>
-        <div class="brand-text glow-text">SFTi DevBridge</div>
-        <div class="brand-sub">StatikFinTech Intelligence · AI Dev Loop</div>
+
+      ```
+      <div class="header-status">
+        <div class="stat-chip">
+          <span class="label">Events</span>
+          <span class="value" id="stat-total">0</span>
+        </div>
+        <div class="stat-chip">
+          <span class="label">Queue</span>
+          <span class="value" id="stat-queue">0</span>
+        </div>
+        <div class="stat-chip">
+          <span class="label">Uptime</span>
+          <span class="value" id="stat-uptime">0m 00s</span>
+        </div>
       </div>
-    </div>
 
-```
-<div class="header-status">
-  <div class="stat-chip">
-    <span class="label">Events</span>
-    <span class="value" id="stat-total">0</span>
-  </div>
-  <div class="stat-chip">
-    <span class="label">Queue</span>
-    <span class="value" id="stat-queue">0</span>
-  </div>
-  <div class="stat-chip">
-    <span class="label">Uptime</span>
-    <span class="value" id="stat-uptime">0m 00s</span>
-  </div>
-</div>
+      <div class="header-time" id="header-time">00:00:00</div>
+      ```
 
-<div class="header-time" id="header-time">00:00:00</div>
-```
+    </header>
 
-  </header>
+    <!-- ── Sidebar ─────────────────────────────────────────────────────────── -->
 
-  <!-- ── Sidebar ─────────────────────────────────────────────────────────── -->
+    <aside id="sidebar">
 
-  <aside id="sidebar">
-
-```
-<!-- Connection -->
-<div class="panel">
-  <div class="panel-label">Connection</div>
-  <div class="conn-display">
-    <div class="conn-ring-wrap">
-      <div class="conn-ring outer"></div>
-      <div class="conn-ring inner"></div>
-      <div class="conn-dot disconnected" id="conn-dot"></div>
-    </div>
-    <div class="conn-info">
-      <div class="conn-state disconnected" id="conn-state">OFFLINE</div>
-      <div class="conn-ip" id="conn-ip">—</div>
-      <div class="conn-latency" id="conn-latency">—</div>
-    </div>
-  </div>
-</div>
-
-<!-- Device stats -->
-<div class="panel">
-  <div class="panel-label">Device</div>
-  <div class="stat-row">
-    <span class="key">Platform</span>
-    <span class="val" id="dev-platform">iOS 26</span>
-  </div>
-  <div class="stat-row">
-    <span class="key">UA</span>
-    <span class="val" id="dev-ua" style="font-size:8px;max-width:110px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">—</span>
-  </div>
-  <div class="stat-row">
-    <span class="key">Online</span>
-    <span class="val green" id="dev-online">—</span>
-  </div>
-  <div class="stat-row">
-    <span class="key">Memory</span>
-    <span class="val" id="dev-mem">—</span>
-  </div>
-</div>
-
-<!-- Level filters -->
-<div class="panel">
-  <div class="panel-label">Filter</div>
-  <div class="level-filters">
-    <button class="level-btn active" data-level="all" style="color:rgba(210,230,240,0.7)">
-      <span class="lbl" style="color:inherit">All</span>
-      <span class="count" data-count="all">—</span>
-    </button>
-    <button class="level-btn" data-level="log" style="color:#00f5c8">
-      <span class="lbl" style="color:inherit">LOG</span>
-      <span class="count" data-count="log">0</span>
-    </button>
-    <button class="level-btn" data-level="info" style="color:#5eb8ff">
-      <span class="lbl" style="color:inherit">INFO</span>
-      <span class="count" data-count="info">0</span>
-    </button>
-    <button class="level-btn" data-level="warn" style="color:#ff9500">
-      <span class="lbl" style="color:inherit">WARN</span>
-      <span class="count" data-count="warn">0</span>
-    </button>
-    <button class="level-btn" data-level="error" style="color:#ff3b5c">
-      <span class="lbl" style="color:inherit">ERR</span>
-      <span class="count" data-count="error">0</span>
-    </button>
-    <button class="level-btn" data-level="card" style="color:#bf5fff">
-      <span class="lbl" style="color:inherit">CARD</span>
-      <span class="count" data-count="card">0</span>
-    </button>
-  </div>
-</div>
-
-<!-- Actions -->
-<div class="panel">
-  <button class="clear-btn" id="clear-btn">⌫ Clear Feed</button>
-</div>
-```
-
-  </aside>
-
-  <!-- ── Log Feed ─────────────────────────────────────────────────────────── -->
-
-  <main id="feed">
-    <!-- Cards injected by ui.js -->
-  </main>
-
-  <!-- ── Queue Panel ─────────────────────────────────────────────────────── -->
-
-  <aside id="queue-panel">
-    <div class="queue-header">
-      <div class="panel-label">Agent Queue</div>
-    </div>
-    <div class="queue-list" id="queue-list">
-      <div class="queue-empty">
-        <div class="icon">◈</div>
-        <div class="msg">queue empty</div>
+      ```
+      <!-- Connection -->
+      <div class="panel">
+        <div class="panel-label">Connection</div>
+        <div class="conn-display">
+          <div class="conn-ring-wrap">
+            <div class="conn-ring outer"></div>
+            <div class="conn-ring inner"></div>
+            <div class="conn-dot disconnected" id="conn-dot"></div>
+          </div>
+          <div class="conn-info">
+            <div class="conn-state disconnected" id="conn-state">OFFLINE</div>
+            <div class="conn-ip" id="conn-ip">—</div>
+            <div class="conn-latency" id="conn-latency">—</div>
+          </div>
+        </div>
       </div>
-    </div>
-  </aside>
 
-</div>
+      <!-- Device stats -->
+      <div class="panel">
+        <div class="panel-label">Device</div>
+        <div class="stat-row">
+          <span class="key">Platform</span>
+          <span class="val" id="dev-platform">iOS 26</span>
+        </div>
+        <div class="stat-row">
+          <span class="key">UA</span>
+          <span class="val" id="dev-ua"
+            style="font-size:8px;max-width:110px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">—</span>
+        </div>
+        <div class="stat-row">
+          <span class="key">Online</span>
+          <span class="val green" id="dev-online">—</span>
+        </div>
+        <div class="stat-row">
+          <span class="key">Memory</span>
+          <span class="val" id="dev-mem">—</span>
+        </div>
+      </div>
 
-<!-- ── Scripts ──────────────────────────────────────────────────────────── -->
+      <!-- Level filters -->
+      <div class="panel">
+        <div class="panel-label">Filter</div>
+        <div class="level-filters">
+          <button class="level-btn active" data-level="all" style="color:rgba(210,230,240,0.7)">
+            <span class="lbl" style="color:inherit">All</span>
+            <span class="count" data-count="all">—</span>
+          </button>
+          <button class="level-btn" data-level="log" style="color:#00f5c8">
+            <span class="lbl" style="color:inherit">LOG</span>
+            <span class="count" data-count="log">0</span>
+          </button>
+          <button class="level-btn" data-level="info" style="color:#5eb8ff">
+            <span class="lbl" style="color:inherit">INFO</span>
+            <span class="count" data-count="info">0</span>
+          </button>
+          <button class="level-btn" data-level="warn" style="color:#ff9500">
+            <span class="lbl" style="color:inherit">WARN</span>
+            <span class="count" data-count="warn">0</span>
+          </button>
+          <button class="level-btn" data-level="error" style="color:#ff3b5c">
+            <span class="lbl" style="color:inherit">ERR</span>
+            <span class="count" data-count="error">0</span>
+          </button>
+          <button class="level-btn" data-level="card" style="color:#bf5fff">
+            <span class="lbl" style="color:inherit">CARD</span>
+            <span class="count" data-count="card">0</span>
+          </button>
+        </div>
+      </div>
 
-<script type="module">
-  import { pushLog, setConnected, setDisconnected, updateQueue } from '/hu.ui/ui.js';
+      <!-- Actions -->
+      <div class="panel">
+        <button class="clear-btn" id="clear-btn">⌫ Clear Feed</button>
+      </div>
+      ```
 
-  // ── Bridge integration ──────────────────────────────────────────────────
-  // bridge.js writes to window.BRIDGE_EVENTS — ui.js consumes them
-  // This wires bridge telemetry into the UI card feed in real time
+    </aside>
 
-  // Device info
-  const ua = navigator.userAgent;
-  document.getElementById('dev-ua').textContent      = ua.slice(0, 40);
-  document.getElementById('dev-platform').textContent = ua.includes('iPhone') ? 'iOS 26' : navigator.platform;
-  document.getElementById('dev-online').textContent  = navigator.onLine ? 'YES' : 'NO';
-  if (navigator.deviceMemory) {
-    document.getElementById('dev-mem').textContent = navigator.deviceMemory + ' GB';
-  }
+    <!-- ── Log Feed ─────────────────────────────────────────────────────────── -->
 
-  window.addEventListener('online',  () => document.getElementById('dev-online').textContent = 'YES');
-  window.addEventListener('offline', () => document.getElementById('dev-online').textContent = 'NO');
+    <main id="feed">
+      <!-- Cards injected by ui.js -->
+    </main>
 
-  // ── Bridge event bus ────────────────────────────────────────────────────
-  // bridge.js dispatches CustomEvent('sfti:log', {detail: entry})
-  // and CustomEvent('sfti:connected', {detail: {ip, latency}})
-  // and CustomEvent('sfti:disconnected')
-  // and CustomEvent('sfti:queue', {detail: cards[]})
+    <!-- ── Queue Panel ─────────────────────────────────────────────────────── -->
 
-  window.addEventListener('sfti:log', e => pushLog(e.detail));
+    <aside id="queue-panel">
+      <div class="queue-header">
+        <div class="panel-label">Agent Queue</div>
+      </div>
+      <div class="queue-list" id="queue-list">
+        <div class="queue-empty">
+          <div class="icon">◈</div>
+          <div class="msg">queue empty</div>
+        </div>
+      </div>
+    </aside>
 
-  window.addEventListener('sfti:connected', e => {
-    setConnected(e.detail.ip, e.detail.latency);
-    pushLog({ source: 'sys', level: 'info', message: `Connected to ${e.detail.ip} — ${e.detail.latency}ms`, ts: Date.now() / 1000 });
-  });
+  </div>
 
-  window.addEventListener('sfti:disconnected', () => {
-    setDisconnected();
-    pushLog({ source: 'sys', level: 'warn', message: 'Server connection lost — retrying...', ts: Date.now() / 1000 });
-  });
+  <!-- ── Scripts ──────────────────────────────────────────────────────────── -->
 
-  window.addEventListener('sfti:queue', e => updateQueue(e.detail));
-</script>
+  <script type="module">
+    import { pushLog, setConnected, setDisconnected, updateQueue } from '/hu.ui/ui.js';
 
-<script type="module" src="/client/bridge.js"></script>
+    // ── Bridge integration ──────────────────────────────────────────────────
+    // bridge.js writes to window.BRIDGE_EVENTS — ui.js consumes them
+    // This wires bridge telemetry into the UI card feed in real time
+
+    // Device info
+    const ua = navigator.userAgent;
+    document.getElementById('dev-ua').textContent = ua.slice(0, 40);
+    document.getElementById('dev-platform').textContent = ua.includes('iPhone') ? 'iOS 26' : navigator.platform;
+    document.getElementById('dev-online').textContent = navigator.onLine ? 'YES' : 'NO';
+    if (navigator.deviceMemory) {
+      document.getElementById('dev-mem').textContent = navigator.deviceMemory + ' GB';
+    }
+
+    window.addEventListener('online', () => document.getElementById('dev-online').textContent = 'YES');
+    window.addEventListener('offline', () => document.getElementById('dev-online').textContent = 'NO');
+
+    // ── Bridge event bus ────────────────────────────────────────────────────
+    // bridge.js dispatches CustomEvent('sfti:log', {detail: entry})
+    // and CustomEvent('sfti:connected', {detail: {ip, latency}})
+    // and CustomEvent('sfti:disconnected')
+    // and CustomEvent('sfti:queue', {detail: cards[]})
+
+    window.addEventListener('sfti:log', e => pushLog(e.detail));
+
+    window.addEventListener('sfti:connected', e => {
+      setConnected(e.detail.ip, e.detail.latency);
+      pushLog({ source: 'sys', level: 'info', message: `Connected to ${e.detail.ip} — ${e.detail.latency}ms`, ts: Date.now() / 1000 });
+    });
+
+    window.addEventListener('sfti:disconnected', () => {
+      setDisconnected();
+      pushLog({ source: 'sys', level: 'warn', message: 'Server connection lost — retrying...', ts: Date.now() / 1000 });
+    });
+
+    window.addEventListener('sfti:queue', e => updateQueue(e.detail));
+  </script>
+
+  <script type="module" src="/client/bridge.js"></script>
 
 </body>
+
 </html>
