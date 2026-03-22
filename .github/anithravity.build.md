@@ -16,14 +16,18 @@ Built for iOS 26.4 Developer Beta. Poll and POST over HTTP only — iOS kills so
 
 ```
 sfti.devbridge/
+├── index.html              ← PWA shell, installs to iOS home screen
 ├── system/
 │   └── ai.server/
 │       ├── server.py           ← Python bridge server
-│       └── requirements.txt    ← fastapi, uvicorn
+│       └── requirements.txt    ← fastapi, uvicorn, other tools as needed
 ├── client/
-│   ├── index.html              ← PWA shell, installs to iOS home screen
 │   ├── bridge.js               ← telemetry capture + card poll loop
-│   └── manifest.json           ← makes it installable as standalone app
+│   └── manifest.json           ← makes it installable as standalone app, not needed for apple, but still use to ensure icon is used for in web icon and as pwa icon
+├── hu.ui/
+│   ├── ui.js               ← for what js needs to do in the frontend
+│   ├── conf.ui.effects           ← is this needed? sounds cool
+│   └── ui.css           ← for what css does in the frontend
 └── antigravity.build.md        ← this file
 ```
 
