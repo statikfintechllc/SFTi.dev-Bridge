@@ -25,7 +25,7 @@ sfti.devbridge/
 │   ├── bridge.js               ← telemetry capture + card poll loop
 │   └── manifest.json           ← PWA install manifest, drives icon in browser + home screen
 ├── hu.ui/
-
+│   ├── __init.py__
 │   ├── conf.ui.effects.js      ← all visual parameters in one place (colors, timing, physics)
 │   ├── ui.js                   ← canvas mesh, 3D tilt, log card rendering, event bus
 │   └── ui.css                  ← layout, animation, typography, iOS safe area
