@@ -25,9 +25,14 @@ sfti.devbridge/
 │   ├── bridge.js               ← telemetry capture + card poll loop
 │   └── manifest.json           ← PWA install manifest, drives icon in browser + home screen
 ├── hu.ui/
+
 │   ├── conf.ui.effects.js      ← all visual parameters in one place (colors, timing, physics)
 │   ├── ui.js                   ← canvas mesh, 3D tilt, log card rendering, event bus
 │   └── ui.css                  ← layout, animation, typography, iOS safe area
+└── ico
+│   ├── icon.svg                ← Web Icon and PWA Icon, and Loading Screen Icon.
+│   ├── holo.*.svg  ('s)                ← To be build for any small svg needed throughout the app, for tab icons, reference icons, etc, to keep the html file light and fast, template everything.
+│   └── __init.py__
 └── antigravity.build.md        ← this file
 ```
 
