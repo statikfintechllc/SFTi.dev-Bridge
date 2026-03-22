@@ -31,9 +31,9 @@ sfti.devbridge/
 │   ├── ui.js                   ← canvas mesh, 3D tilt, log card rendering, event bus
 │   └── ui.css                  ← layout, animation, typography, iOS safe area
 ├── ico/
+│   ├── __init__.py             ← makes ico/ importable as a Python package for server-side icon serving
 │   ├── icon.svg                ← primary icon: web favicon, PWA home screen, splash/loading screen
-│   ├── holo.*.svg              ← holographic UI micro-icons: tab indicators, reference markers, status glyphs
-│   └── __init__.py             ← makes ico/ importable as a Python package for server-side icon serving
+│   └── holo.*.svg              ← holographic UI micro-icons: tab indicators, reference markers, status glyphs
 └── antigravity.build.md        ← this file
 ```
 
