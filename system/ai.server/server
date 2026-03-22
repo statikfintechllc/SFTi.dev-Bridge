@@ -1,0 +1,224 @@
+#!/usr/bin/env python3
+"""AI Control Center Server (System/ai.server/server)
+
+This module is a FastAPI-based telemetry and control center for iOS PWAs.
+
+Features:
+- REST endpoints for health checking, telemetry ingestion, agent commands.
+- WebSocket endpoints for device telemetry and agent live feeds.
+- In-memory event store and client state.
+- Structured logging and event dispatch for live debugging.
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+import uuid
+from collections import deque
+from datetime import datetime
+from typing import Any, Deque, Dict, List, Optional
+
+from fastapi import BackgroundTasks, FastAPI, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from pydantic import BaseModel, Field
+
+APP_NAME = "ai.agent.controlcenter"
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+)
+logger = logging.getLogger(APP_NAME)
+
+MAX_EVENTS = 2000
+EVENTS: Deque[Dict[str, Any]] = deque(maxlen=MAX_EVENTS)
+CLIENTS: Dict[str, Dict[str, Any]] = {}
+ACTIVE_WS: Dict[str, WebSocket] = {}
+
+
+class TelemetryEvent(BaseModel):
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    device_id: str
+    source: str = Field(default="pwa-client")
+    severity: str = Field(default="info")
+    timestamp: datetime = Field(default_factory=datetime.utcnow)
+    category: Optional[str] = Field(default="general")
+    message: str
+    details: Optional[Dict[str, Any]] = None
+
+
+class AgentCommand(BaseModel):
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    command: str
+    target_device_id: Optional[str] = None
+    parameters: Optional[Dict[str, Any]] = None
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class ClientState(BaseModel):
+    device_id: str
+    platform: str = "ios"
+    app_version: Optional[str] = None
+    connected: bool = False
+    last_seen: datetime = Field(default_factory=datetime.utcnow)
+    metadata: Optional[Dict[str, Any]] = None
+
+
+def new_event_record(event: TelemetryEvent) -> Dict[str, Any]:
+    record = event.dict()
+    record["received_at"] = datetime.utcnow().isoformat()
+    return record
+
+
+async def broadcast_event(event: Dict[str, Any]) -> None:
+    payload = json.dumps({"type": "telemetry", "event": event}, default=str)
+    logger.debug("Broadcasting event to %d active ws clients", len(ACTIVE_WS))
+    to_remove = []
+    for client_id, websocket in list(ACTIVE_WS.items()):
+        try:
+            await websocket.send_text(payload)
+        except Exception as ex:
+            logger.warning("Failed to send event to ws client %s: %s", client_id, ex)
+            to_remove.append(client_id)
+
+    for c in to_remove:
+        ACTIVE_WS.pop(c, None)
+
+
+def record_client_status(device_id: str, data: Dict[str, Any]) -> None:
+    now = datetime.utcnow()
+    state = CLIENTS.get(device_id, {})
+    state.update({"device_id": device_id, "last_seen": now.isoformat(), "connected": True})
+    state.update(data)
+    CLIENTS[device_id] = state
+
+
+app = FastAPI(title="AI Agent Control Center", version="0.1.0")
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+@app.get("/health/live")
+async def health_live() -> JSONResponse:
+    return JSONResponse({"status": "live", "timestamp": datetime.utcnow().isoformat()})
+
+
+@app.get("/health/ready")
+async def health_ready() -> JSONResponse:
+    return JSONResponse({"status": "ready", "timestamp": datetime.utcnow().isoformat()})
+
+
+@app.post("/telemetry")
+async def ingest_telemetry(event: TelemetryEvent, background_tasks: BackgroundTasks) -> JSONResponse:
+    record = new_event_record(event)
+    EVENTS.append(record)
+    record_client_status(event.device_id, {"platform": event.source, "last_event": event.category})
+    logger.info("Telemetry received: %s", event.dict())
+    background_tasks.add_task(broadcast_event, record)
+    return JSONResponse({"status": "ok", "id": record["id"]})
+
+
+@app.post("/client/register")
+async def register_client(state: ClientState) -> JSONResponse:
+    record_client_status(state.device_id, {"platform": state.platform, "app_version": state.app_version, "metadata": state.metadata})
+    logger.info("Client registered: %s", state.dict())
+    return JSONResponse({"status": "registered", "device_id": state.device_id})
+
+
+@app.get("/client/{device_id}")
+async def get_client(device_id: str) -> JSONResponse:
+    state = CLIENTS.get(device_id)
+    if not state:
+        raise HTTPException(status_code=404, detail="Device not found")
+    return JSONResponse(state)
+
+
+@app.get("/agent/status")
+async def get_agent_status(limit: int = Query(100, ge=1, le=1000)) -> JSONResponse:
+    recent_events: List[Dict[str, Any]] = list(EVENTS)[-limit:]
+    return JSONResponse({"clients": list(CLIENTS.values()), "recent_events": recent_events, "live_connections": list(ACTIVE_WS.keys())})
+
+
+@app.post("/agent/command")
+async def issue_agent_command(command: AgentCommand) -> JSONResponse:
+    logger.info("Agent command received: %s", command.dict())
+    payload = {"type": "agent_command", "command": command.dict()}
+    msg = json.dumps(payload, default=str)
+    to_remove = []
+    for client_id, websocket in list(ACTIVE_WS.items()):
+        try:
+            await websocket.send_text(msg)
+        except Exception as ex:
+            logger.warning("Unable to send agent command to client %s: %s", client_id, ex)
+            to_remove.append(client_id)
+    for c in to_remove:
+        ACTIVE_WS.pop(c, None)
+    return JSONResponse({"status": "enqueued", "command_id": command.id})
+
+
+@app.websocket("/ws")
+async def websocket_endpoint(websocket: WebSocket, role: str = Query("agent"), device_id: Optional[str] = Query(None)) -> None:
+    await websocket.accept()
+    client_key = f"{role}:{device_id or uuid.uuid4()}"
+    ACTIVE_WS[client_key] = websocket
+    logger.info("WebSocket connected: %s", client_key)
+
+    try:
+        if role == "agent":
+            start_snapshot = {"clients": list(CLIENTS.values()), "recent_events": list(EVENTS)}
+            await websocket.send_text(json.dumps({"type": "initial_snapshot", "payload": start_snapshot}, default=str))
+
+        while True:
+            message = await websocket.receive_text()
+            logger.debug("WebSocket message from %s: %s", client_key, message)
+            try:
+                data = json.loads(message)
+            except json.JSONDecodeError:
+                await websocket.send_text(json.dumps({"type": "error", "message": "invalid json"}))
+                continue
+
+            if role == "device":
+                try:
+                    telemetry_event = TelemetryEvent(**data)
+                    record = new_event_record(telemetry_event)
+                    EVENTS.append(record)
+                    record_client_status(telemetry_event.device_id, {"platform": telemetry_event.source, "last_event": telemetry_event.category})
+                    await broadcast_event(record)
+                    await websocket.send_text(json.dumps({"type": "ack", "id": record["id"]}, default=str))
+                except Exception as exc:
+                    logger.exception("Failed to process telemetry ws event")
+                    await websocket.send_text(json.dumps({"type": "error", "message": str(exc)}))
+            elif role == "agent":
+                await websocket.send_text(json.dumps({"type": "echo", "payload": data}, default=str))
+
+    except WebSocketDisconnect:
+        logger.info("WebSocket disconnected: %s", client_key)
+    finally:
+        ACTIVE_WS.pop(client_key, None)
+
+
+@app.middleware("http")
+async def add_process_time_header(request: Request, call_next):
+    start_time = datetime.utcnow()
+    response = await call_next(request)
+    process_time_ms = int((datetime.utcnow() - start_time).total_seconds() * 1000)
+    response.headers["X-Process-Time-Ms"] = str(process_time_ms)
+    return response
+
+
+def run_server(host: str = "0.0.0.0", port: int = 8000) -> None:
+    import uvicorn
+
+    logger.info("Starting AI Control Center server on %s:%d", host, port)
+    uvicorn.run("system.ai.server.server:app", host=host, port=port, reload=True)
+
+
+if __name__ == "__main__":
+    run_server()
+
