@@ -22,17 +22,18 @@ sfti.devbridge/
 │       ├── server.py           ← Python bridge server
 │       └── requirements.txt    ← fastapi, uvicorn, sse-starlette
 ├── client/
+│   ├── __init__.py             ← makes the client/ importable as a Python package for AI Usage. 
 │   ├── bridge.js               ← telemetry capture + card poll loop
 │   └── manifest.json           ← PWA install manifest, drives icon in browser + home screen
 ├── hu.ui/
-│   ├── __init.py__
+│   ├── __init__.py             ← makes hu.ui/ importable as a Python package for server-side ui serving 
 │   ├── conf.ui.effects.js      ← all visual parameters in one place (colors, timing, physics)
 │   ├── ui.js                   ← canvas mesh, 3D tilt, log card rendering, event bus
 │   └── ui.css                  ← layout, animation, typography, iOS safe area
-└── ico
-│   ├── icon.svg                ← Web Icon and PWA Icon, and Loading Screen Icon.
-│   ├── holo.*.svg  ('s)                ← To be build for any small svg needed throughout the app, for tab icons, reference icons, etc, to keep the html file light and fast, template everything.
-│   └── __init.py__
+├── ico/
+│   ├── icon.svg                ← primary icon: web favicon, PWA home screen, splash/loading screen
+│   ├── holo.*.svg              ← holographic UI micro-icons: tab indicators, reference markers, status glyphs
+│   └── __init__.py             ← makes ico/ importable as a Python package for server-side icon serving
 └── antigravity.build.md        ← this file
 ```
 
@@ -88,6 +89,40 @@ Three-column grid layout: sidebar | feed | queue. Orbitron display font + JetBra
 
 -----
 
+## What’s Built — ico
+
+All icons are SVG only. No raster files. Keeps the HTML fast and the assets infinitely scalable.
+
+### `icon.svg`
+
+The primary SFTi brand mark. Used in three places:
+
+- Browser favicon via `<link rel="icon" href="/ico/icon.svg">`
+- PWA home screen icon referenced in `manifest.json`
+- Splash/loading screen rendered full-screen on PWA cold launch
+
+Design: hexagonal S mark, teal stroke, minimal fill, matches the header brand mark in `index.html`.
+
+### `holo.*.svg`
+
+A set of micro-icons for UI decoration. Named `holo.[name].svg`. Each is a single-purpose glyph — tab indicators, status markers, reference icons, decorative glyphs in card headers. Inlined via `<img src="/ico/holo.[name].svg">` or loaded as CSS `mask-image` for color-theming. Using external SVG files keeps `index.html` and `ui.js` free of embedded SVG markup — the HTML stays light, icons stay cacheable.
+
+Current holo set to build:
+
+- `holo.dot.svg` — pulsing status dot
+- `holo.hex.svg` — hexagon frame, used as container for status indicators
+- `holo.arrow.svg` — directional glyph for card flow indicators
+- `holo.signal.svg` — connection/wifi signal bars
+- `holo.queue.svg` — stack glyph for queue panel header
+
+Add more as the UI grows. Naming convention: `holo.[descriptor].svg`.
+
+### `__init__.py`
+
+Makes `ico/` a valid Python package so `server.py` can serve icons directly via a static mount or import path without additional config.
+
+-----
+
 ## How the Agent Interacts with the UI
 
 The agent never touches the UI directly. It talks to `server.py`. The UI reacts.
@@ -119,17 +154,19 @@ To change any visual parameter, edit `hu.ui/conf.ui.effects.js` only. Do not tou
 
 ## Build Prompt
 
-Build a live dev bridge. Five file groups, nothing extra.
+Build a live dev bridge. Six file groups, nothing extra.
 
-**Python server** — receives a continuous stream of logs and errors from the phone, queues tasks for the phone to run, streams everything to a watching agent via SSE. Binds to `0.0.0.0` on a fixed port. Prints the LAN IP on startup. Routes: `POST /log`, `GET /poll`, `POST /card`, `GET /cards`, `GET /stream`, `GET /health`. CORS allow all.
+**Python server** — receives a continuous stream of logs and errors from the phone, queues tasks for the phone to run, streams everything to a watching agent via SSE. Binds to `0.0.0.0` on a fixed port. Prints the LAN IP on startup. Routes: `POST /log`, `GET /poll`, `POST /card`, `GET /cards`, `GET /stream`, `GET /health`. Mount `ico/` as a static directory. CORS allow all.
 
 **Client script** (`client/bridge.js`) — vanilla JS, no dependencies. Intercepts all console output, uncaught errors, and unhandled rejections. Batches and ships to `/log` every 2 seconds. Polls `/poll` every 3 seconds — executes any card that comes back, posts result. Dispatches `sfti:log`, `sfti:connected`, `sfti:disconnected`, `sfti:queue` CustomEvents on window for the UI to consume. Single `SERVER` config variable at the top set to the LAN IP.
 
-**PWA manifest** (`client/manifest.json`) — drives home screen icon and standalone display mode on iOS and Android.
+**PWA manifest** (`client/manifest.json`) — drives home screen icon and standalone display mode on iOS and Android. Icon path points to `/ico/icon.svg`.
 
-**UI layer** (`hu.ui/`) — already built. Do not regenerate unless explicitly asked. Wire bridge events to ui.js exports in index.html as documented above.
+**Icon set** (`ico/`) — SVG only. `icon.svg` is the primary brand mark: hexagonal S, teal stroke, used as favicon, PWA icon, and splash screen graphic. `holo.*.svg` are micro-icons for UI elements — build the set listed in the ico section above. `__init__.py` makes the directory a Python package for server-side static mounting.
 
-**PWA shell** (`index.html`) — already built. Loads ui.js and bridge.js. Listens for sfti:* events and calls ui.js exports.
+**UI layer** (`hu.ui/`) — already built. Do not regenerate unless explicitly asked. Wire bridge events to ui.js exports in index.html as documented above. Reference holo icons via `<img src="/ico/holo.[name].svg">` where appropriate in the UI.
+
+**PWA shell** (`index.html`) — already built. Loads ui.js and bridge.js. Listens for sfti:* events and calls ui.js exports. Favicon points to `/ico/icon.svg`.
 
 No websockets. Poll and POST over HTTP only — iOS kills socket connections in the background. Foregrounded execution only on iOS 26. That’s expected behavior, not a bug.
 
