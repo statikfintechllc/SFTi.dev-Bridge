@@ -1,40 +1,66 @@
 # SFTi DevBridge
 
-### Live iOS PWA ↔ AI Agent Development Loop
+### Live iOS PWA ↔ AI Agent Diagnostic Runtime Plugin
 
 -----
 
-## README
+## What This Is
 
-A live development bridge between a Python server and a PWA running on an iPhone 16 Pro over WiFi. The phone ships everything it sees — logs, errors, events — back to the server in real time. The agent watches the stream, queues tasks, and the phone runs them and reports back. No teardown. No feedback delay. No blind spots.
+DevBridge is a **self-contained diagnostic plugin** — a live development bridge between a Python server and a PWA running on an iPhone over WiFi. The phone ships everything it sees — console output, errors, network events, storage mutations, lifecycle changes — back to the server in real time. The AI agent watches the stream, pushes task cards, and the phone executes them and reports results. No teardown. No feedback delay. No blind spots.
 
-Built for iOS 26.4 Developer Beta. Poll and POST over HTTP only — iOS kills socket connections when the app backgrounds, so the loop is the only reliable mechanism. That’s expected behavior, not a bug.
+**This is a plugin, not a standalone app.** DevBridge lives under `DevBridge/` inside any workspace. Future builds on this workspace surface DevBridge under **Advanced Settings** as a toggleable diagnostic runtime. When enabled, it provides the AI agent with full observability into the running PWA — console intercept, network tracing, storage inspection, screenshot capture, and remote JS evaluation.
+
+Built for iOS 26.4 Developer Beta. Poll and POST over HTTP only — iOS kills socket connections when the app backgrounds, so the poll loop is the only reliable mechanism. That is expected behavior, not a bug.
+
+-----
+
+## Plugin Integration
+
+DevBridge is designed to be **dropped into any PWA workspace** without modifying the host application's architecture.
+
+### Enabling DevBridge in a Build
+
+1. The `DevBridge/` directory exists at the workspace root
+2. The host app includes `<script src="/bridge.js"></script>` before `</body>`
+3. The server is started via `python DevBridge/ai.server/server.py`
+
+### For Future Builds
+
+Any PWA built on this workspace can expose DevBridge under **Advanced Settings → Developer Diagnostics**. The integration point is a single script tag — `bridge.js` self-initializes, detects the server URL from its own `<script>` src, and begins telemetry capture and card polling automatically. No configuration required from the host app.
+
+When DevBridge is disabled (script tag removed), the host PWA runs with zero overhead. DevBridge has no runtime dependencies on the host app and injects no globals beyond `window.BRIDGE`.
 
 -----
 
 ## File Tree
 
 ```
-sfti.devbridge/
-├── index.html                  ← PWA shell, installs to iOS home screen
-├── system/
-│   └── ai.server/
-│       ├── server.py           ← Python bridge server
-│       └── requirements.txt    ← fastapi, uvicorn, sse-starlette
+DevBridge/
+├── __init__.py                     ← makes DevBridge/ importable as a Python package
+├── ai.server/
+│   ├── __init__.py
+│   ├── server.py                   ← FastAPI bridge server (port 8765)
+│   ├── requirements.txt            ← fastapi, uvicorn, sse-starlette
+│   └── libs/                       ← vendored Python dependencies
 ├── client/
-│   ├── __init__.py             ← makes the client/ importable as a Python package for AI Usage. 
-│   ├── bridge.js               ← telemetry capture + card poll loop
-│   └── manifest.json           ← PWA install manifest, drives icon in browser + home screen
+│   ├── __init__.py
+│   ├── dashboard.html              ← main PWA entry point (Liquid Glass UI)
+│   ├── bridge.js                   ← telemetry capture + card poll loop + card execution
+│   ├── manifest.json               ← PWA install manifest
+│   ├── sw.js                       ← service worker stub (pass-through, no caching)
+│   └── tabs/
+│       ├── telemetry.html          ← device/runtime stats (CPU, memory, GPU, battery)
+│       ├── cards.html              ← card queue & execution history
+│       ├── storage.html            ← localStorage/sessionStorage inspector
+│       └── network.html            ← real-time latency probe & resource timing
 ├── hu.ui/
-│   ├── __init__.py             ← makes hu.ui/ importable as a Python package for server-side ui serving 
-│   ├── conf.ui.effects.js      ← all visual parameters in one place (colors, timing, physics)
-│   ├── ui.js                   ← canvas mesh, 3D tilt, log card rendering, event bus
-│   └── ui.css                  ← layout, animation, typography, iOS safe area
-├── ico/
-│   ├── __init__.py             ← makes ico/ importable as a Python package for server-side icon serving
-│   ├── icon.svg                ← primary icon: web favicon, PWA home screen, splash/loading screen
-│   └── holo.*.svg              ← holographic UI micro-icons: tab indicators, reference markers, status glyphs
-└── antigravity.build.md        ← this file
+│   ├── __init__.py
+│   ├── conf.ui.effects.js          ← all visual parameters (colors, timing, physics)
+│   ├── ui.js                       ← canvas mesh, 3D tilt, log card rendering, event bus
+│   └── ui.css                      ← layout, animation, typography, iOS safe area
+└── ico/
+    ├── __init__.py
+    └── (SVG icon assets)
 ```
 
 -----
@@ -49,125 +75,187 @@ flowchart TD
     A -->|runs card\nreports result back| B
     B -->|GET /stream SSE| C[AI Agent\nwatching live]
     C -->|POST /card\npushes next task| B
-    B -->|CustomEvents\nsfti:log · sfti:connected\nsfti:queue| D[hu.ui\nui.js + ui.css]
-    D -->|renders live| E[index.html\nlog feed · queue panel\nconnection status]
+    B -->|CustomEvents\nbridge_log · bridge_custom| D[dashboard.html\n+ hu.ui layer]
+    D -->|renders live| E[PWA Shell\nlog feed · tab views\nconnection status]
 ```
 
 -----
 
-## What’s Built — hu.ui
+## Server — `DevBridge/ai.server/server.py`
 
-The frontend is a cyberpunk mission control interface. Three files, each with a single responsibility.
+FastAPI + uvicorn bound to `0.0.0.0:8765`. CORS `allow_origins=["*"]` for local dev.
+
+### API Endpoints
+
+| Route | Method | Purpose |
+|---|---|---|
+| `/health` | GET | Server status, LAN IP, queue depth |
+| `/log` | POST | Receive telemetry from device |
+| `/poll` | GET | Device polls — returns next pending card or `{"card": null}` |
+| `/card` | POST | Agent pushes a card into the queue |
+| `/card/{id}/status` | POST | Device reports card execution result |
+| `/cards` | GET | Full card queue state |
+| `/logs` | GET | Latest N logs (truncates large payloads) |
+| `/stream` | GET | SSE — broadcasts log events + card state changes |
+| `/` | GET | Serves `dashboard.html` |
+
+### Key Design
+
+- In-memory ordered card queue. Cards transition `pending → delivered → completed / failed`.
+- SSE broadcast uses `put_nowait` — zombie listeners are pruned automatically.
+- `/logs` and `/cards` return explicit `JSONResponse` to prevent async serialization hangs.
+- All broadcast calls wrapped in `try/except` — no single listener failure can block the event loop.
+- Serves `DevBridge/client/` as a static mount at `/`. Dashboard, bridge, tabs, manifest, and SW are all served from this mount.
+
+-----
+
+## Client — `DevBridge/client/bridge.js`
+
+Vanilla JS. No dependencies. Self-initializing.
+
+### Telemetry Capture
+
+Intercepts and ships to `/log`:
+
+| Source | What's Captured |
+|---|---|
+| `console.*` | All console.log/warn/error/info/debug output |
+| `window.onerror` | Uncaught exceptions with stack traces |
+| `onunhandledrejection` | Unhandled Promise rejections |
+| `fetch` | Method, URL, status, duration (non-bridge requests only) |
+| `XMLHttpRequest` | Same as fetch — method, URL, status, duration |
+| `localStorage` / `sessionStorage` | setItem and removeItem operations |
+| `visibilitychange` | Foreground/background transitions |
+| `online` / `offline` | Connectivity state changes |
+
+### Critical Safety Mechanisms
+
+| Mechanism | Purpose |
+|---|---|
+| `_insideInterceptor` guard | Prevents infinite recursion when intercepted console calls trigger telemetry |
+| `_safeFetch()` / `_safeLog()` | Internal methods that bypass ALL interceptors — use the raw, stashed originals |
+| `isBridgeUrl()` | Matches both absolute and relative bridge paths (`/log`, `/poll`, `/health`, etc.) to prevent the fetch interceptor from catching bridge traffic |
+| Silent error handling | `flush()` and `poll()` failures are silently dropped — NO console calls inside catch blocks |
+
+### Card Types
+
+| Type | Behavior |
+|---|---|
+| `eval` | Execute arbitrary JS in the browser context |
+| `fetch` | Perform a network request from the device |
+| `storage_read` | Read a key from localStorage |
+| `storage_write` | Write a key to localStorage |
+| `reload` / `refresh` | Trigger `location.reload()` |
+| `screenshot` | Capture viewport via html2canvas, return PNG dataURL |
+| `test` | Run named JS assertions, return `{passed: [], failed: []}` |
+| `custom` | Dispatch a `bridge_custom` CustomEvent |
+
+-----
+
+## Dashboard — `DevBridge/client/dashboard.html`
+
+PWA shell with Liquid Glass aesthetic. Served at `/` by the server.
+
+### Core Features
+
+- **Status pill**: Green/red connection indicator with LAN IP display
+- **Live log feed**: Real-time log cards from bridge telemetry, color-coded by level
+- **Holographic hamburger**: SVG-animated menu trigger in the status bar
+- **Animated sidebar**: Slide-out navigation for Dashboard + 4 diagnostic tabs
+
+### Diagnostic Tabs (`DevBridge/client/tabs/`)
+
+| Tab | File | What It Shows |
+|---|---|---|
+| Telemetry | `telemetry.html` | CPU cores, memory, GPU adapter, battery, screen, UA string |
+| Cards | `cards.html` | Card execution history with status, type, timestamp, payload, result |
+| Storage | `storage.html` | Storage quota estimate + all localStorage/sessionStorage entries |
+| Network | `network.html` | Real-time latency probe (pings `/health`), resource timing log |
+
+Tabs are loaded dynamically via `fetch()` + `innerHTML` injection. Each tab's `<script>` runs in the dashboard's context with access to `window.BRIDGE`.
+
+-----
+
+## UI Layer — `DevBridge/hu.ui/`
+
+Cyberpunk mission control interface. Three files, each with a single responsibility.
 
 ### `conf.ui.effects.js`
 
-Every tunable visual parameter lives here and nowhere else. Agent touches this file to change the feel of the interface — colors, particle count, tilt sensitivity, animation speeds, log level color coding, poll/flush timing. No hunting through logic files.
+Every tunable visual parameter lives here and nowhere else. Modify this file to change the feel of the interface.
 
-Key parameter groups:
-
-- `FX.colors` — full palette, CSS var equivalents
-- `FX.mesh` — neural mesh canvas: particle count, speed, connection distance, mouse repel radius and force
-- `FX.tilt` — 3D card tilt: max degrees, perspective, glare opacity, hover scale
-- `FX.cards` — log card entry animation: duration, max visible, slide distance
-- `FX.levels` — per-level color, label, and dim background for log cards
-- `FX.timing` — flush interval, poll interval, stat tick
+- `FX.colors` — full palette
+- `FX.mesh` — neural mesh canvas parameters
+- `FX.tilt` — 3D card tilt behavior
+- `FX.cards` — log card animation
+- `FX.levels` — per-level color coding
+- `FX.timing` — flush/poll/stat intervals
 
 ### `ui.js`
 
-The runtime engine. Reads `conf.ui.effects.js` on init. Exports four functions that `index.html` calls via the event bus.
-
-- **NeuralMesh** — Canvas2D animated particle field. Particles drift, connect via proximity lines, repel from mouse cursor. Color shifts from teal (connected) to red (disconnected) in real time.
-- **attachTilt(el)** — Applies 3D perspective tilt to any element tracking mouse position. Called on every log card as it enters the feed.
-- **pushLog(entry)** — Renders an incoming log entry as an animated card in the feed. Color-coded by level. Trimmed to `FX.cards.maxVisible`. Auto-scrolls.
-- **setConnected(ip, latency)** — Updates the orbital connection ring animation, IP display, latency, and starts the uptime counter.
-- **setDisconnected()** — Switches ring and mesh to disconnected state, stops uptime counter.
-- **updateQueue(cards)** — Renders the agent queue panel. Shows card type, status badge (pending / delivered / done / failed), and payload preview.
+Runtime engine. NeuralMesh canvas, 3D tilt, log card rendering, connection state management, queue panel rendering.
 
 ### `ui.css`
 
-Three-column grid layout: sidebar | feed | queue. Orbitron display font + JetBrains Mono body. Full page-load stagger animation. iOS safe area padding via `env(safe-area-inset-top)`. Collapses to single-column feed on mobile. Grain overlay via inline SVG filter.
+Layout, animation, typography, iOS safe area padding. Collapses to single-column on mobile.
 
 -----
 
-## What’s Built — ico
-
-All icons are SVG only. No raster files. Keeps the HTML fast and the assets infinitely scalable.
-
-### `icon.svg`
-
-The primary SFTi brand mark. Used in three places:
-
-- Browser favicon via `<link rel="icon" href="/ico/icon.svg">`
-- PWA home screen icon referenced in `manifest.json`
-- Splash/loading screen rendered full-screen on PWA cold launch
-
-Design: hexagonal S mark, teal stroke, minimal fill, matches the header brand mark in `index.html`.
-
-### `holo.*.svg`
-
-A set of micro-icons for UI decoration. Named `holo.[name].svg`. Each is a single-purpose glyph — tab indicators, status markers, reference icons, decorative glyphs in card headers. Inlined via `<img src="/ico/holo.[name].svg">` or loaded as CSS `mask-image` for color-theming. Using external SVG files keeps `index.html` and `ui.js` free of embedded SVG markup — the HTML stays light, icons stay cacheable.
-
-Current holo set to build:
-
-- `holo.dot.svg` — pulsing status dot
-- `holo.hex.svg` — hexagon frame, used as container for status indicators
-- `holo.arrow.svg` — directional glyph for card flow indicators
-- `holo.signal.svg` — connection/wifi signal bars
-- `holo.queue.svg` — stack glyph for queue panel header
-
-Add more as the UI grows. Naming convention: `holo.[descriptor].svg`.
-
-### `__init__.py`
-
-Makes `ico/` a valid Python package so `server.py` can serve icons directly via a static mount or import path without additional config.
-
------
-
-## How the Agent Interacts with the UI
-
-The agent never touches the UI directly. It talks to `server.py`. The UI reacts.
-
-### Event Bus
-
-`bridge.js` dispatches four CustomEvents on `window`. `index.html` listens and calls `ui.js` exports.
-
-|CustomEvent        |Fired when                     |UI response                                     |
-|-------------------|-------------------------------|------------------------------------------------|
-|`sfti:log`         |bridge flushes a batch         |`pushLog()` — card enters feed                  |
-|`sfti:connected`   |first successful poll response |`setConnected()` — ring animates, mesh goes teal|
-|`sfti:disconnected`|poll fails / server unreachable|`setDisconnected()` — ring stops, mesh goes red |
-|`sfti:queue`       |poll returns queue state       |`updateQueue()` — queue panel re-renders        |
-
-### Agent Workflow
+## Agent Workflow
 
 1. Agent watches `GET /stream` — SSE feed of every log event the phone sends
-1. Agent sees something worth probing → `POST /card` with type and payload
-1. Server queues the card → next phone poll picks it up → phone executes → result POSTed back to `/log`
-1. Agent sees the result in the stream → queues next card or closes the loop
-1. UI shows the full picture: feed, queue state, connection status, level counts — all live
+2. Agent sees something worth probing → `POST /card` with type and payload
+3. Server queues card → next phone poll picks it up → phone executes → result POSTed back to `/log`
+4. Agent sees result in the stream → queues next card or closes the loop
+5. Dashboard shows the full picture: feed, queue state, connection status — all live
 
-### Tuning the UI
+### Quick Commands
 
-To change any visual parameter, edit `hu.ui/conf.ui.effects.js` only. Do not touch `ui.js` or `ui.css` for visual changes. It is the single source of truth for all aesthetic and timing decisions.
+```bash
+# Activate venv and start the server
+source DevBridge/.venv/bin/activate
+python3 DevBridge/ai.server/server.py
+
+# Push a test card
+curl -X POST http://localhost:8765/card \
+  -H 'Content-Type: application/json' \
+  -d '{"type":"test","payload":{"assertions":{"bridge":"typeof window.BRIDGE !== \"undefined\""}}}'
+
+# Take a screenshot
+curl -X POST http://localhost:8765/card \
+  -H 'Content-Type: application/json' \
+  -d '{"type":"screenshot","payload":""}'
+
+# Force reload the PWA
+curl -X POST http://localhost:8765/card \
+  -H 'Content-Type: application/json' \
+  -d '{"type":"reload","payload":""}'
+
+# Read latest logs
+curl http://localhost:8765/logs?limit=10
+
+# Watch live stream
+curl -N http://localhost:8765/stream
+```
 
 -----
 
-## Build Prompt
+## iOS Constraints
 
-Build a live dev bridge. Six file groups, nothing extra.
+| Constraint | Handling |
+|---|---|
+| No persistent sockets | HTTP poll loop (GET /poll every 3s) |
+| Background kills timers | `visibilitychange` restarts poll/flush loops |
+| Battery API restricted | Graceful degradation with privacy notice |
+| RAM API restricted | Reports "Restricted" |
+| `navigator.connection` missing | Custom latency probe pinging `/health` |
+| Service worker caching | Pass-through only — no stale files |
 
-**Python server** — receives a continuous stream of logs and errors from the phone, queues tasks for the phone to run, streams everything to a watching agent via SSE. Binds to `0.0.0.0` on a fixed port. Prints the LAN IP on startup. Routes: `POST /log`, `GET /poll`, `POST /card`, `GET /cards`, `GET /stream`, `GET /health`. Mount `ico/` as a static directory. CORS allow all.
+-----
 
-**Client script** (`client/bridge.js`) — vanilla JS, no dependencies. Intercepts all console output, uncaught errors, and unhandled rejections. Batches and ships to `/log` every 2 seconds. Polls `/poll` every 3 seconds — executes any card that comes back, posts result. Dispatches `sfti:log`, `sfti:connected`, `sfti:disconnected`, `sfti:queue` CustomEvents on window for the UI to consume. Single `SERVER` config variable at the top set to the LAN IP.
+## Build Constraints
 
-**PWA manifest** (`client/manifest.json`) — drives home screen icon and standalone display mode on iOS and Android. Icon path points to `/ico/icon.svg`.
-
-**Icon set** (`ico/`) — SVG only. `icon.svg` is the primary brand mark: hexagonal S, teal stroke, used as favicon, PWA icon, and splash screen graphic. `holo.*.svg` are micro-icons for UI elements — build the set listed in the ico section above. `__init__.py` makes the directory a Python package for server-side static mounting.
-
-**UI layer** (`hu.ui/`) — already built. Do not regenerate unless explicitly asked. Wire bridge events to ui.js exports in index.html as documented above. Reference holo icons via `<img src="/ico/holo.[name].svg">` where appropriate in the UI.
-
-**PWA shell** (`index.html`) — already built. Loads ui.js and bridge.js. Listens for sfti:* events and calls ui.js exports. Favicon points to `/ico/icon.svg`.
-
-No websockets. Poll and POST over HTTP only — iOS kills socket connections in the background. Foregrounded execution only on iOS 26. That’s expected behavior, not a bug.
-
-Server bound to `0.0.0.0`. Client `SERVER` variable set to LAN IP, not localhost. CORS allow all origins. These three things are what killed the previous build.
+- No websockets. Poll and POST over HTTP only.
+- Server bound to `0.0.0.0`. Client detects server URL from its own `<script>` tag src.
+- CORS allow all origins — local dev tool.
+- These three constraints are what killed the previous build. Do not revert them.
