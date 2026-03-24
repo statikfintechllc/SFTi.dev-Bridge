@@ -8,7 +8,7 @@ A self-contained diagnostic plugin that gives an AI agent real-time observabilit
 
 ```bash
 # Activate the self-contained venv
-source DevBridge/.venv/bin/activate
+source DevBridge/.venv/bin/activate # Adding Shortly, Realized it was left out of the commit.
 
 # Install dependencies (first time only)
 pip install -r DevBridge/ai.server/requirements.txt
