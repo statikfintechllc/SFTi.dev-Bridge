@@ -6,7 +6,7 @@ A self-contained diagnostic plugin that gives an AI agent real-time observabilit
 
 > [!NOTE] 
 >
-> Same `README.md` as `SFTi.dev-Bridge/README.md`, it is here for ease of access.
+> Same `README.md` as `SFTi.dev-Bridge/.github/README.md`, it is here for ease of access.
 
 ## Quick Start
 
@@ -130,6 +130,19 @@ DevBridge/
 │       └── network.html            Real-time latency + resource timing
 ├── hu.ui/                          UI layer (neural mesh canvas, effects config, CSS)
 └── ico/                            SVG icon assets
+
+.dev-bridge
+├── debug.imgs
+│   ├── bugs
+│   │   ├── devbridge  # Bug Screenshots for the devbridge system
+│   │   └── system     # Bug Screenshots for the system
+│   └── current.state
+│       ├── devbridge  # Current State Screenshots for the devbridge system
+│       └── system     # Current State Screenshots for the system
+├── __init__.py
+├── instructions
+│   └── anithravity.build.md    # Original Build doc for the SFTi.dev-Bridge system. (For the agent or an inclined developer)
+└── README.md    # Integration and usage directions (For all to read and use)
 ```
 
 ## API
