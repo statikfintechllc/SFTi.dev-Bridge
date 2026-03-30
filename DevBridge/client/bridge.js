@@ -32,13 +32,28 @@ class DevBridge {
         this._origFetch = window.fetch.bind(window);
 
         // Detect server URL
-        const tag = document.currentScript;
-        if (tag && tag.src) {
-            const u = new URL(tag.src);
-            this.serverUrl = `${u.protocol}//${u.host}`;
+        // 1. Explicit global override (set by host app before loading bridge.js)
+        // 2. data-server attribute on the script tag
+        // 3. Infer from the script's own src URL
+        // 4. Fallback: same origin as the page
+        let detectedUrl = '';
+        if (window.__DEVBRIDGE_URL) {
+            detectedUrl = window.__DEVBRIDGE_URL;
         } else {
-            this.serverUrl = window.location.origin;
+            // document.currentScript is null for dynamically-injected scripts,
+            // so we scan all script tags for the one whose src contains 'bridge.js'
+            const tag = document.currentScript
+                || Array.from(document.querySelectorAll('script[src*="bridge.js"]')).pop();
+            if (tag && tag.getAttribute('data-server')) {
+                detectedUrl = tag.getAttribute('data-server');
+            } else if (tag && tag.src) {
+                const u = new URL(tag.src);
+                detectedUrl = `${u.protocol}//${u.host}`;
+            } else {
+                detectedUrl = window.location.origin;
+            }
         }
+        this.serverUrl = detectedUrl;
 
         this._origConsole.log(`[Bridge] Initialized. Server: ${this.serverUrl}`);
         this._init();
@@ -60,6 +75,7 @@ class DevBridge {
         this._interceptNetwork();
         this._interceptStorage();
         this._interceptLifecycle();
+        this._interceptWebSockets();
         this._startLoops();
 
         if (navigator.storage && navigator.storage.persist) {
@@ -198,6 +214,26 @@ class DevBridge {
         window.addEventListener('offline', () => this._enqueue('lifecycle', 'warn', 'Connection: Offline'));
     }
 
+    _interceptWebSockets() {
+        if (!window.WebSocket) return;
+        const self = this;
+        const origWS = window.WebSocket;
+        window.WebSocket = function(url, protocols) {
+            const ws = new origWS(url, protocols);
+            self._enqueue('websocket', 'info', `WS Connecting: ${url}`);
+            
+            ws.addEventListener('open', () => self._enqueue('websocket', 'info', `WS Opened: ${url}`));
+            ws.addEventListener('close', (e) => self._enqueue('websocket', 'warn', `WS Closed: ${url} (Code: ${e.code})`));
+            ws.addEventListener('error', () => self._enqueue('websocket', 'error', `WS Error: ${url}`));
+            
+            // Note: We deliberately don't intercept every onmessage here as it could be extremely chatty,
+            // but we register the connection hook.
+            return ws;
+        };
+        // Preserve prototype chain
+        window.WebSocket.prototype = origWS.prototype;
+    }
+
     // --- Core ---
 
     _enqueue(source, level, message, data = {}) {
@@ -306,9 +342,55 @@ class DevBridge {
                 case 'test':
                     result = await this._runTest(card.payload);
                     break;
+                case 'click_element':
+                    const elClick = document.querySelector(card.payload.selector);
+                    if (elClick) {
+                        elClick.click();
+                        result = `Clicked ${card.payload.selector}`;
+                    } else {
+                        result = `Element ${card.payload.selector} not found`;
+                    }
+                    break;
+                case 'query_selector':
+                    const elQuery = document.querySelector(card.payload.selector);
+                    if (elQuery) {
+                        result = {
+                            tagName: elQuery.tagName,
+                            className: elQuery.className,
+                            innerHTML: elQuery.innerHTML.substring(0, 500) // Truncated
+                        };
+                    } else {
+                        result = 'Element not found';
+                    }
+                    break;
                 case 'custom':
                     window.dispatchEvent(new CustomEvent('bridge_custom', { detail: card.payload }));
                     result = 'dispatched';
+                    break;
+                case 'csa_state':
+                    if (window.CSA) {
+                        result = {
+                            environment: window.CSA.configLoader?.isLoaded() ? window.CSA.configLoader.get('environment') : 'not-loaded',
+                            apiBase: window.CSA.configLoader?.isLoaded() ? window.CSA.configLoader.getApiBaseUrl() : null,
+                            accountId: window.CSA.sessionManager?.accountId,
+                            accounts: window.CSA.sessionManager?.accounts || [],
+                            wsConnected: window.CSA.wsManager?.isConnected() || false
+                        };
+                    } else {
+                        result = { error: 'window.CSA is not defined on the page' };
+                    }
+                    break;
+                case 'webrtc_check':
+                    result = {
+                        supported: !!window.RTCPeerConnection,
+                        mediaDevicesSupported: !!(navigator.mediaDevices && navigator.mediaDevices.enumerateDevices),
+                    };
+                    if (result.mediaDevicesSupported) {
+                        try {
+                            const devices = await navigator.mediaDevices.enumerateDevices();
+                            result.devices = devices.length;
+                        } catch (e) {}
+                    }
                     break;
                 default:
                     throw new Error(`Unknown card type: ${card.type}`);

@@ -8,7 +8,7 @@ A self-contained diagnostic plugin that gives an AI agent real-time observabilit
 
 ```bash
 # Activate the self-contained venv
-source DevBridge/.venv/bin/activate # Adding Shortly, Realized it was left out of the commit.
+source DevBridge/.venv/bin/activate
 
 # Install dependencies (first time only)
 pip install -r DevBridge/ai.server/requirements.txt
@@ -23,20 +23,68 @@ python3 DevBridge/ai.server/server.py
 
 ## Integrating DevBridge into a Host PWA
 
-Add two things to the host application:
+DevBridge has two roles: the **dashboard** (served from port 8765) and the **bridge client** (`bridge.js`, injected into the host app). When integrating into a host app running on a **different origin** (e.g., port 8080), the bridge client must know the DevBridge server URL.
 
-### 1 — Load the bridge script
+### How bridge.js detects the server URL
+
+`bridge.js` uses the following priority chain:
+
+1. **`window.__DEVBRIDGE_URL`** — Explicit global set before the script loads
+2. **`data-server` attribute** — On the `<script>` tag itself
+3. **Script `src` URL** — Parses the origin from wherever `bridge.js` was loaded
+4. **`window.location.origin`** — Last resort fallback (same-origin only)
+
+> ⚠️ **Important:** `document.currentScript` is `null` for dynamically-created `<script>` elements. When injecting `bridge.js` dynamically, the script finds itself by scanning for `script[src*="bridge.js"]` in the DOM. This works reliably, but methods 1 and 2 are more explicit.
+
+### Method 1 — Dynamic injection with auto-detection (Recommended)
+
+This is the recommended pattern for host apps. The bridge URL is auto-detected from the page's hostname, assuming DevBridge runs on port 8765 on the same machine:
 
 ```html
 <!-- Add before </body> in your host app's HTML -->
-<script src="http://<LAN_IP>:8765/bridge.js"></script>
+<script>
+  (function() {
+    // Auto-detect: use the same host that served this page, port 8765
+    const autoUrl = `${window.location.protocol}//${window.location.hostname}:8765`;
+    const url = new URLSearchParams(window.location.search).get('devbridge') || autoUrl;
+    const script = document.createElement('script');
+    script.src = `${url}/bridge.js`;
+    script.onerror = function() { console.warn('[DevBridge] Failed to load bridge.js from', url); };
+    document.body.appendChild(script);
+  })();
+</script>
 ```
 
-The bridge self-initializes, detects the server URL, and begins telemetry capture and card polling with no further configuration.
+This works for iOS homescreen PWAs, which strip query parameters. The `?devbridge=` param is an optional override.
 
-### 2 — Add a DevBridge entry in the navigation / Advanced Settings
+### Method 2 — Static script tag with `data-server`
 
-In the app's settings menu or navigation sidebar, add an entry that opens the DevBridge dashboard in a new window or navigates to it:
+```html
+<script src="http://<LAN_IP>:8765/bridge.js" data-server="http://<LAN_IP>:8765"></script>
+```
+
+### Method 3 — Global override
+
+```html
+<script>
+  window.__DEVBRIDGE_URL = 'http://192.168.1.163:8765';
+</script>
+<script src="http://192.168.1.163:8765/bridge.js"></script>
+```
+
+### Same-origin (dashboard.html)
+
+When bridge.js is served from the same origin as the DevBridge server (e.g. inside `dashboard.html`), no configuration is needed:
+
+```html
+<script src="bridge.js"></script>
+```
+
+The script detects the server URL from its own `src` attribute automatically.
+
+### Adding a DevBridge link in the host app
+
+In the app's settings menu or navigation dock, add an entry that opens the DevBridge dashboard:
 
 ```html
 <!-- Option A: open in browser (fullscreen diagnostic view) -->
@@ -44,16 +92,15 @@ In the app's settings menu or navigation sidebar, add an entry that opens the De
   DevBridge Diagnostics
 </a>
 
-<!-- Option B: embedded iframe inside an "Advanced Settings" panel -->
-<iframe
-  id="devbridge-frame"
-  src="http://<LAN_IP>:8765/"
-  style="width:100%;height:100%;border:none;"
-  allow="storage-access"
-></iframe>
+<!-- Option B: auto-detect URL from the same hostname -->
+<script>
+  window.openDevBridge = function() {
+    const url = `${window.location.protocol}//${window.location.hostname}:8765`;
+    window.open(url, '_blank');
+  };
+</script>
+<button onclick="openDevBridge()">Diagnostics</button>
 ```
-
-The recommended pattern for future builds is **Option A** — open the DevBridge dashboard at `/` as a separate fullscreen view triggered from an "Advanced Settings" row. This keeps the diagnostic surface completely isolated from the host app's UI and lets the agent observe both the host PWA (via `bridge.js` telemetry) and the DevBridge dashboard simultaneously.
 
 When DevBridge is not needed, remove the `<script>` tag. Zero runtime overhead when disabled.
 
@@ -103,6 +150,10 @@ DevBridge/
 | `reload` | Force `location.reload()` |
 | `fetch` | Make a network request from device |
 | `storage_read` / `storage_write` | Inspect/modify localStorage |
+| `click_element` | Click a DOM element by CSS selector |
+| `query_selector` | Inspect a DOM element by CSS selector |
+| `csa_state` | Dump the CSA global state object |
+| `webrtc_check` | Check WebRTC/media device capabilities |
 
 ## Full Documentation
 
